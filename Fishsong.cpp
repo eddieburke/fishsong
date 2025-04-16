@@ -12,20 +12,17 @@
 // Global Configuration Definition
 FishsongConfig g_fishsongConfig = { false, 1, 5.0f, 1.0f, 0, 0 };
 
-// Duration mapping for note duration symbols
-static std::map<char, int> durationMap;
-
-// Initialize the duration map
-void InitDurationMap() {
-    if (durationMap.empty()) {
-        durationMap['w'] = 480;    // whole note
-        durationMap['h'] = 240;    // half note
-        durationMap['q'] = 120;    // quarter note
-        durationMap['e'] = 60;     // eighth note
-        durationMap['s'] = 30;     // sixteenth note
-        durationMap['s'] = 30;     // sixteenth note
-        durationMap['t'] = 15;     // 32nd note
-        durationMap['z'] = 7;      // 64th note 
+// Get duration value from symbol using switch case
+int CSongEvent::GetDurationValue(char symbol) {
+    switch(std::tolower(symbol)) {
+        case 'w': return 480;    // whole note
+        case 'h': return 240;    // half note
+        case 'q': return 120;    // quarter note
+        case 'e': return 60;     // eighth note
+        case 's': return 30;     // sixteenth note
+        case 't': return 15;     // 32nd note
+        case 'z': return 7;      // 64th note
+        default:  return 0;      // invalid symbol
     }
 }
 
@@ -74,8 +71,6 @@ std::string TrimString(const std::string &s) {
 CSongEvent::CSongEvent() : noteValue(0), duration(0), volume(1.0f), title(""), isChordMember(false) {}
 
 bool CSongEvent::ProcessSongEvent(const std::string &eventStr) {
-    // Initialize duration map if needed
-    InitDurationMap();
     
     std::string noteToken, durationToken, volumeToken;
     
@@ -165,43 +160,60 @@ int CSongEvent::ParseDuration(const std::string &durStr) {
     int totalDuration = 0;
     size_t pos = 0;
     
-    // Process complex durations like "q+e", "st", "qd"
+    // Process complex durations like "q+e", "st" (sixteenth triplet), "qd"
     while (pos < durStr.length()) {
         int baseDuration = 0;
         
+        // Skip any leading whitespace
+        while (pos < durStr.length() && (durStr[pos] == ' ' || durStr[pos] == '\t')) {
+            pos++;
+        }
+        
         // Case 1: Numeric duration
-        if (std::isdigit(durStr[pos])) {
+        if (pos < durStr.length() && std::isdigit(durStr[pos])) {
             size_t numStart = pos;
             while (pos < durStr.length() && std::isdigit(durStr[pos])) pos++;
             baseDuration = std::atoi(durStr.substr(numStart, pos - numStart).c_str());
         }
         // Case 2: Symbol duration (q, h, w, etc.)
-        else if (durationMap.find(durStr[pos]) != durationMap.end()) {
-            baseDuration = durationMap[durStr[pos]];
-            pos++;
-            
-            // Check for modifiers (d for dotted, t for triplet)
-            if (pos < durStr.length()) {
-                if (durStr[pos] == 'd') {
-                    // Dotted note (1.5x duration)
-                    baseDuration = static_cast<int>(baseDuration * 1.5f);
-                    pos++;
-                } else if (durStr[pos] == 't') {
-                    // Triplet (2/3 duration)
-                    baseDuration = static_cast<int>(baseDuration * 2.0f / 3.0f);
-                    pos++;
+        else if (pos < durStr.length()) {
+            baseDuration = GetDurationValue(durStr[pos]);
+            if (baseDuration > 0) {
+                pos++;
+                
+                // Check for modifiers (d for dotted, t for triplet)
+                if (pos < durStr.length()) {
+                    if (durStr[pos] == 'd') {
+                        // Dotted note (1.5x duration)
+                        baseDuration = static_cast<int>(baseDuration * 1.5f);
+                        pos++;
+                    } else if (durStr[pos] == 't') {
+                        // Triplet (2/3 duration)
+                        baseDuration = static_cast<int>(baseDuration * 2.0f / 3.0f);
+                        pos++;
+                    }
                 }
+            } else {
+                // Unknown symbol, skip it
+                pos++;
             }
-        } else {
-            // Unknown symbol, skip it
-            pos++;
         }
         
         // Add to total duration
         totalDuration += baseDuration;
         
+        // Skip any whitespace
+        while (pos < durStr.length() && (durStr[pos] == ' ' || durStr[pos] == '\t')) {
+            pos++;
+        }
+        
         // Skip the + if present
         if (pos < durStr.length() && durStr[pos] == '+') {
+            pos++;
+        }
+        
+        // Skip any whitespace after the +
+        while (pos < durStr.length() && (durStr[pos] == ' ' || durStr[pos] == '\t')) {
             pos++;
         }
     }
@@ -250,7 +262,7 @@ void CSongEvent::SetTitle(const std::string &t) { title = t; }
 void CSongEvent::SetDuration(int dur) { duration = dur; }
 
 // CFishsongFile Implementation
-CFishsongFile::CFishsongFile(const std::string &path) : filePath(path), currentTrack(1) {}
+CFishsongFile::CFishsongFile(const std::string &path) : filePath(path), currentTrack(1), waitingForTrack(0) {}
 
 CFishsongFile::~CFishsongFile() {
     // No resources to clean up
@@ -265,10 +277,10 @@ bool CFishsongFile::Load() {
     
     std::string line;
     bool skipParsing = false;
-    int waitingForTrack = 0;
     
-    // Initialize track positions
+    // Initialize track positions and reset global config
     trackPositions[currentTrack] = 0;
+    g_fishsongConfig.localShift = 0;
     
     while (std::getline(infile, line)) {
         if (line.empty()) continue;
@@ -310,56 +322,67 @@ bool CFishsongFile::Load() {
         // Process the event line
         CSongEvent event;
         if (event.ProcessSongEvent(line)) {
-            // Handle chord building logic
-            if (event.IsChordMember()) {
-                // Add to pending chord
-                pendingChord.push_back(event);
-            } else {
-                // Is this a rest?
-                if (event.GetNoteValue() == -1) {
-                    // For a rest, don't finalize chord yet, just add the rest
-                    event.FinalizeSongStructure();
-                    events.push_back(event);
-                    
-                    // Update track position
-                    trackPositions[currentTrack] += event.GetDuration();
-                } else {
-                    // This is a regular note - finalize any pending chord
-                    if (!pendingChord.empty()) {
-                        for (size_t i = 0; i < pendingChord.size(); i++) {
-                            // Copy duration and volume from the current note
-                            pendingChord[i].FishsongCopyData(event);
-                            pendingChord[i].FinalizeSongStructure();
-                            events.push_back(pendingChord[i]);
-                        }
-                        pendingChord.clear();
-                    }
-                    
-                    // Add the current note
-                    event.FinalizeSongStructure();
-                    events.push_back(event);
-                    
-                    // Update track position
-                    trackPositions[currentTrack] += event.GetDuration();
-                }
-            }
+            ProcessEventWithChordHandling(event);
         } else {
             std::cerr << "Invalid event line: " << line << std::endl;
         }
     }
     
     // Handle any pending chord notes at the end
+    FinalizePendingChord(120); // Use quarter note duration
+    
+    return true;
+}
+
+void CFishsongFile::ProcessEventWithChordHandling(const CSongEvent &event) {
+    // Handle chord building logic
+    if (event.IsChordMember()) {
+        // Add to pending chord
+        pendingChord.push_back(event);
+    } else {
+        // Is this a rest?
+        if (event.GetNoteValue() == -1) {
+            // For a rest, don't finalize chord yet, just add the rest
+            CSongEvent restEvent = event;
+            restEvent.FinalizeSongStructure();
+            events.push_back(restEvent);
+            
+            // Update track position
+            trackPositions[currentTrack] += restEvent.GetDuration();
+        } else {
+            // This is a regular note - finalize any pending chord
+            if (!pendingChord.empty()) {
+                for (size_t i = 0; i < pendingChord.size(); i++) {
+                    // Copy duration and volume from the current note
+                    CSongEvent chordEvent = pendingChord[i];
+                    chordEvent.FishsongCopyData(event);
+                    chordEvent.FinalizeSongStructure();
+                    events.push_back(chordEvent);
+                }
+                pendingChord.clear();
+            }
+            
+            // Add the current note
+            CSongEvent regularEvent = event;
+            regularEvent.FinalizeSongStructure();
+            events.push_back(regularEvent);
+            
+            // Update track position
+            trackPositions[currentTrack] += regularEvent.GetDuration();
+        }
+    }
+}
+
+void CFishsongFile::FinalizePendingChord(int defaultDuration) {
     if (!pendingChord.empty()) {
         for (size_t i = 0; i < pendingChord.size(); i++) {
-            // Use the default duration (quarter note)
-            pendingChord[i].SetDuration(120);
-            pendingChord[i].FinalizeSongStructure();
-            events.push_back(pendingChord[i]);
+            CSongEvent finalEvent = pendingChord[i];
+            finalEvent.SetDuration(defaultDuration);
+            finalEvent.FinalizeSongStructure();
+            events.push_back(finalEvent);
         }
         pendingChord.clear();
     }
-    
-    return true;
 }
 
 void CFishsongFile::ProcessCommand(const std::string &cmd) {
@@ -379,9 +402,15 @@ void CFishsongFile::ProcessCommand(const std::string &cmd) {
     if (strcasecmp(commandName.c_str(), "line") == 0) {
         int lineNum = std::atoi(commandValue.c_str());
         if (lineNum > 0) {
+            // Finalize any pending chord before switching tracks
+            FinalizePendingChord(120);
+            
             // Update current track
             currentTrack = lineNum;
             g_fishsongConfig.line = lineNum;
+            
+            // Reset localShift when changing lines
+            g_fishsongConfig.localShift = 0;
             
             // Initialize track position if not already done
             if (trackPositions.find(currentTrack) == trackPositions.end()) {
@@ -401,12 +430,12 @@ void CFishsongFile::ProcessCommand(const std::string &cmd) {
                 // Only wait if this track is ahead
                 std::cout << "Track " << currentTrack << " waiting for track " << trackToWaitFor << std::endl;
                 waitingForTrack = trackToWaitFor;
-                pendingChord.clear(); // Clear any pending chord when waiting
+                // Do NOT clear pending chord when waiting for sync
             }
         }
     } else {
         // Forward other commands to the global parser
-        ParseFishSongCommand(cmd);
+        ParseFishSongCommand(command);
     }
 }
 
@@ -464,8 +493,7 @@ void InitFishsongEvents() {
     g_fishsongConfig.shift = 0;
     g_fishsongConfig.localShift = 0;
     
-    // Initialize the duration map
-    InitDurationMap();
+    // No duration map to initialize now
 }
 
 void ClearFishsongBuffer() {
@@ -518,7 +546,7 @@ void ProcessFishsong(bool force) {
 }
 
 void ParseFishSongCommand(const std::string &commandStr) {
-    // Cleanup the string
+    // Cleanup the string - remove * prefix if present
     std::string cmd = commandStr;
     if (!cmd.empty() && cmd[0] == '*')
         cmd.erase(0, 1);
@@ -530,7 +558,7 @@ void ParseFishSongCommand(const std::string &commandStr) {
     if (commandName.empty())
         return;
     
-    // Commands.
+    // Commands
     if (strcasecmp(commandName.c_str(), "skip") == 0) {
         g_fishsongConfig.skip = (strcasecmp(commandValue.c_str(), "true") == 0);
     } else if (strcasecmp(commandName.c_str(), "speed") == 0) {
