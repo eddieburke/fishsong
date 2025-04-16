@@ -23,8 +23,9 @@ void InitDurationMap() {
         durationMap['q'] = 120;    // quarter note
         durationMap['e'] = 60;     // eighth note
         durationMap['s'] = 30;     // sixteenth note
-        durationMap['t'] = 20;     // triplet (1/12)
-        durationMap['z'] = 15;     // 32nd note
+        durationMap['s'] = 30;     // sixteenth note
+        durationMap['t'] = 15;     // 32nd note
+        durationMap['z'] = 7;      // 64th note 
     }
 }
 
