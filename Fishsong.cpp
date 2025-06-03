@@ -360,6 +360,14 @@ void CFishsongFile::FinalizePendingChord(int defaultDuration) {
             events.push_back(finalEvent);
         }
         pendingChord.clear();
+        // Advance the track position since this chord consumes time
+        std::map<int, int>::iterator it = trackPositions.find(currentTrack);
+        if (it != trackPositions.end()) {
+            it->second += defaultDuration;
+        } else {
+            // Initialize the track position if somehow missing
+            trackPositions[currentTrack] = defaultDuration;
+        }
     }
 }
 
