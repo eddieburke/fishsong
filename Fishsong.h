@@ -20,7 +20,7 @@ struct FishsongConfig
 extern FishsongConfig g_fishsongConfig;
 
 // Helper function for case-insensitive string comparison
-int strcasecmp(const char* s1, const char* s2);
+int StrCaseCmp(const char* s1, const char* s2);
 
 // CSongEvent: Represents a single note or rest
 class CSongEvent
