@@ -627,12 +627,7 @@ void ParseFishSongCommand(const std::string &commandStr) {
     } else {
         recognized = false;
         LogError(std::string("Unrecognized global command: ") + commandName);
-    }
-    
-    if (recognized) {
-        std::string msg = "Parsed global command: " + commandName;
-        if (!commandValue.empty() || StrCaseCmp(commandName.c_str(), "attrib")==0 ) {
-            msg += " = " + commandValue;
+ + commandValue;
         }
         LogInfo(msg);
     }
