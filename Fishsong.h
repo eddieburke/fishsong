@@ -51,7 +51,7 @@ public:
     // Modifiers
     void SetTitle(const std::string &title);
     void SetDuration(int duration);
-    void SetIsChordMember(bool val); // To mark chord members as finalized
+    void SetIsChordMember(bool val);
 
 private:
     // Helper for parsing complex duration strings (e.g., "q+e", "st", "qd")
@@ -61,11 +61,11 @@ private:
     static int GetDurationValue(char symbol);
 
 private:
-    int         noteValue;    // e.g., 60 = C4 in MIDI terms, -1 = rest
-    int         duration;     // length in ticks
-    float       volume;       // 0.0 to 1.0
-    std::string title;        // original token (for logging, etc.)
-    bool        isChordMember;// True if this note is part of a chord awaiting its main note
+    int         noteValue;
+    int         duration;
+    float       volume;
+    std::string title;
+    bool        isChordMember;
 };
 
 // CFishsongFile: Loads and parses a "fishsong" text file
@@ -89,12 +89,12 @@ private:
 
 private:
     std::string              filePath;
-    std::vector<CSongEvent>  events;         // Completed events
-    std::vector<CSongEvent>  pendingChord;   // Temporarily holds chord members
+    std::vector<CSongEvent>  events;
+    std::vector<CSongEvent>  pendingChord;
 
-    int                      currentTrack;    // Which track/line we’re parsing
-    int                      waitingForTrack; // Track we must wait on for synchronization
-    std::map<int, int>       trackPositions;  // For each track, how many ticks have elapsed
+    int                      currentTrack;
+    int                      waitingForTrack;
+    std::map<int, int>       trackPositions;
 };
 
 // CFishsongManager: Manages playback or scheduling of events
@@ -104,39 +104,22 @@ public:
     CFishsongManager();
     ~CFishsongManager();
 
-    // Example usage: updates the manager state; returns true on success
     bool UpdateState(int someFlag, int extraParam, int &counterOut, int cmdFlag);
-
-    // Enqueue or "dispatch" an event for playback
     void DispatchEvent(const CSongEvent &event);
-
-    // Post-parse adjustments to event titles or categories
     void FinalizeEventTitle(CSongEvent &event);
-
-    // Reset internal state/counter
     void ResetState();
 
 private:
-    std::vector<CSongEvent> validatedEvents;  // Might store or queue events
-    int                     updateCounter;    // Simple counter for state updates
+    std::vector<CSongEvent> validatedEvents;
+    int                     updateCounter;
 };
 
 
 // ~~~~ Global Utility Functions ~~~~
-
-// Initialize fishsong events and reset global config
 void InitFishsongEvents();
-
-// Clear internal buffers/data if needed
 void ClearFishsongBuffer();
-
-// Load a fishsong file, returning a pointer to the new CFishsongFile object. Returns NULL on failure
 CFishsongFile* LoadFishsongFile(const std::string &filePath);
-
-// Process all fishsong files in a folder (stubbed out in code, probably something similar in the actual game)
 void ProcessFishsong(bool force = false);
-
-// Parse a fishsong command, e.g. "*speed 1.5", "*shift -2", etc.
 void ParseFishSongCommand(const std::string &commandStr);
 
 #endif // FISHSONG_H
