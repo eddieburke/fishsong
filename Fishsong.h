@@ -28,7 +28,7 @@ class CSongEvent
 public:
     CSongEvent();
 
-    // Attempts to parse one "song event" line (e.g. "C4,q,0.8" or "R,q")
+    // Attempts to parse one "song event" string (e.g. "c4 q" or "r h")
     // Returns true on success, false on parse error
     bool ProcessSongEvent(const std::string &eventStr);
 
