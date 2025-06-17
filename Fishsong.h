@@ -5,6 +5,10 @@
 #include <vector>
 #include <map>
 
+//================================================================================
+// Global Configuration & Utilities
+//================================================================================
+
 // Global configuration structure for fishsong parsing
 struct FishsongConfig
 {
@@ -22,6 +26,11 @@ extern FishsongConfig g_fishsongConfig;
 // Helper function for case-insensitive string comparison
 int StrCaseCmp(const char* s1, const char* s2);
 
+
+//================================================================================
+// Core Parser Classes
+//================================================================================
+
 // Represents a single musical event (a note or a rest).
 class CSongEvent
 {
@@ -29,43 +38,30 @@ public:
     CSongEvent();
 
     // Parses a single event string (e.g. "c4 q" or "r h") and populates the object.
-    // Returns true on success, false on failure.
     bool ProcessSongEvent(const std::string &eventStr);
-
-    // Performs final adjustments, like ensuring a minimum duration.
     void FinalizeSongStructure();
-
-    // Checks if the event matches a specific category (e.g., "long", "beethoven").
     bool CheckSongCategory(const std::string &category) const;
-
-    // Copies duration and volume from another event, used to finalize chord members.
     void FishsongCopyData(const CSongEvent &other);
 
-    // Accessors
+    // Accessors & Modifiers
     int GetNoteValue() const;
     int GetDuration() const;
     float GetVolume() const;
     const std::string &GetTitle() const;
     bool IsChordMember() const;
-
-    // Modifiers
     void SetTitle(const std::string &title);
     void SetDuration(int duration);
     void SetIsChordMember(bool val);
 
 private:
-    // Helper to parse complex duration strings (e.g., "q+e", "st", "qd", "120").
     int ParseDuration(const std::string &durStr);
-
-    // Helper to get the base duration in ticks for a note symbol ('q','h','e', etc.).
     static int GetDurationValue(char symbol);
 
-private:
-    int         noteValue;      // MIDI-like note value (60 = C4), or -1 for a rest
-    int         duration;       // Duration in abstract ticks
-    float       volume;         // Volume from 0.0 to 1.0
-    std::string title;          // The original note token (e.g., "c#5") for logging
-    bool        isChordMember;  // True if this note is part of a chord awaiting finalization
+    int         noteValue;
+    int         duration;
+    float       volume;
+    std::string title;
+    bool        isChordMember;
 };
 
 // Loads, parses, and contains all events from a single fishsong file.
@@ -75,31 +71,26 @@ public:
     CFishsongFile(const std::string &path);
     ~CFishsongFile();
 
-    // Opens and parses the entire file, populating the event list.
     bool Load();
-
-    // Returns the final list of parsed song events.
     const std::vector<CSongEvent>& GetEvents() const;
 
 private:
-    // Processes a command line (e.g., "*speed 9").
     void ProcessCommand(const std::string &cmd);
-    
-    // Handles event logic, including chord finalization.
     void ProcessEventWithChordHandling(const CSongEvent &event);
-    
-    // Finalizes any pending chord at the end of a track or file.
     void FinalizePendingChord(int defaultDuration);
 
-private:
     std::string              filePath;
     std::vector<CSongEvent>  events;
     std::vector<CSongEvent>  pendingChord;
-
     int                      currentTrack;
-    int                      waitingForTrack; // If > 0, track to sync with
-    std::map<int, int>       trackPositions;  // Elapsed ticks for each track to handle synchronization
+    int                      waitingForTrack;
+    std::map<int, int>       trackPositions;
 };
+
+
+//================================================================================
+// Manager & Global Functions
+//================================================================================
 
 // Manages the playback or scheduling of song events.
 class CFishsongManager
@@ -118,11 +109,19 @@ private:
     int                     updateCounter;
 };
 
-// Global Utility Functions
+// Initializes or resets the global fishsong configuration.
 void InitFishsongEvents();
+
+// Clears any global state (if necessary).
 void ClearFishsongBuffer();
+
+// Factory function to load a fishsong file. Returns NULL on failure.
 CFishsongFile* LoadFishsongFile(const std::string &filePath);
+
+// High-level function to process songs (implementation is application-specific).
 void ProcessFishsong(bool force = false);
+
+// Parses a global command string like "speed 9".
 void ParseFishSongCommand(const std::string &commandStr);
 
 #endif // FISHSONG_H
