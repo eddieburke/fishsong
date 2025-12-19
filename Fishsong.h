@@ -3,46 +3,86 @@
 
 #include <string>
 #include <vector>
-#include <list>
+#include <map>
 
-//-----------------------------------------------------------------------------
-// Structure definitions matching the binary memory layout
-//-----------------------------------------------------------------------------
-struct FishNote
+//=============================================================================
+// FORWARD DECLARATIONS
+//=============================================================================
+class Fish;
+class GameApp;
+
+//=============================================================================
+// DEFINITIONS
+//=============================================================================
+#define SONG_TICK_QUARTER 48
+
+struct FishsongConfig 
 {
-    float mPitch;       // Offset 0x00: Pitch relative to C4 (0.0 = C4). -10000.0 = Rest
-    float mUnused1;     // Offset 0x04: Padding/Unused
-    float mUnused2;     // Offset 0x08: Padding/Unused
-    float mSustain;     // Offset 0x0C: Default set to 1.875 in binary
-    float mDuration;    // Offset 0x10: Duration in ticks
+    bool    mSkip;
+    int     mLine;
+    float   mSpeed;
+    float   mVolume; // Now treated as an array in practice for tracks, but config holds base
+    int     mShift;
+    int     mLocalShift;
 };
 
-class FishSong
+extern FishsongConfig g_fishsongConfig;
+
+//=============================================================================
+// CSongEvent
+// Size: 24 bytes (0x18)
+//=============================================================================
+class CSongEvent 
 {
 public:
-    std::string             mName;
-    std::vector<FishNote>   mNotes;
-    bool                    mIsLongVersion;
+    float   mNote;          // Offset 0x00
+    float   mUnusedPad;     // Offset 0x04 (Padding/Unused)
+    double  mVolume;        // Offset 0x08 (8 bytes)
+    int     mDuration;      // Offset 0x10
+    int     mFlags;         // Offset 0x14 (Padding to 0x18)
 
 public:
-    FishSong();
-    virtual ~FishSong();
+    CSongEvent();
+    void    Parse(const char* theString);
 };
 
-//-----------------------------------------------------------------------------
-// Global Song Lists
-//-----------------------------------------------------------------------------
-extern std::list<FishSong> gFishSongsNormal;
-extern std::list<FishSong> gFishSongsRare;
-extern std::list<FishSong> gFishSongsSanta;
-extern std::list<FishSong> gFishSongsBeethoven;
-extern std::list<FishSong> gFishSongsKilgore;
+//=============================================================================
+// CFishsongFile
+//=============================================================================
+class CFishsongFile 
+{
+public:
+    std::string             mPath;
+    
+    // Decompilation implies a vector of events. 
+    // In the binary, tracks might be interleaved or stored in a way 
+    // that 'mCurrentTrack' indexes into specific event lists.
+    // For this recreation, we map TrackID -> Vector.
+    std::map<int, std::vector<CSongEvent> > mTracks;
 
-//-----------------------------------------------------------------------------
-// Public Interface
-//-----------------------------------------------------------------------------
-void FishSong_Init();
-void FishSong_LoadAll();
-void FishSong_FreeAll();
+    // Configuration State per file load
+    float   mTrackVolumes[16]; // param_1 + 0x30 array
+    int     mTrackShifts[16];  // param_1 + 0x44 array
+    int     mCurrentTrack;     // param_1 + 0x54
+    float   mSpeed;            // param_1 + 0x3c
+    int     mGlobalShift;      // param_1 + 0x40
+
+public:
+    CFishsongFile(const std::string& thePath);
+    virtual ~CFishsongFile();
+
+    // Corresponds to FUN_005152f0
+    bool    Load();
+
+private:
+    void    ProcessCommand(char* theLine);
+    void    LogError(const char* theFmt, ...);
+};
+
+//=============================================================================
+// Game Logic Helpers
+//=============================================================================
+// Corresponds to FUN_0054cc70
+void CheckAndApplySpecialFishLogic(Fish* theFish, GameApp* theApp);
 
 #endif // __FISHSONG_H__
