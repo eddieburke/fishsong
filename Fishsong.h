@@ -5,61 +5,47 @@
 #include <vector>
 #include <map>
 
-// Forward declarations
-class Fish;
-class GameApp;
-
-//=============================================================================
-// CSongEvent
-// Exactly 24 bytes (0x18) to match vector stride in FUN_00511830
-//=============================================================================
-class CSongEvent 
+namespace Sexy
 {
-public:
-    float   mNote;          // 0x00
-    int     mPad04;         // 0x04
-    double  mVolume;        // 0x08
-    int     mDuration;      // 0x10
-    int     mPad14;         // 0x14
 
-public:
-    CSongEvent();
-    void    Parse(const char* theString); // FUN_0050e860
+// Represents a single musical note and optional lyric
+struct SongNote
+{
+    int         mPitch;     // Semi-tone offset (e.g., 0 = C, 1 = C#, etc.)
+    float       mDuration;  // Duration in updates/frames
+    std::string mLyric;     // Text to display, if any
 };
 
-//=============================================================================
-// CFishsongFile
-//=============================================================================
-class CFishsongFile 
+// Represents a full song loaded from a text file
+struct SongTrack
+{
+    std::string             mName;
+    std::vector<SongNote>   mNotes;
+};
+
+class FishSongManager
 {
 public:
-    std::string mPath;
-    
-    // Config state matching FUN_005152f0 offsets
-    float   mTrackVolumes[16]; // 0x30
-    float   mSpeed;            // 0x3C
-    int     mGlobalShift;      // 0x40
-    int     mTrackShifts[16];  // 0x44
-    int     mCurrentTrack;     // 0x54
-    bool    mIsSkipping;       // 0x50
+    static FishSongManager* gFishSongManager;
 
-    // In the original, this might be a pointer to a struct containing vectors
-    std::map<int, std::vector<CSongEvent> > mTracks;
+    // Maps song names (e.g., "beethoven", "santa") to track data
+    std::map<std::string, SongTrack> mSongs;
 
 public:
-    CFishsongFile(const std::string& thePath);
-    virtual ~CFishsongFile();
+    FishSongManager();
+    virtual ~FishSongManager();
 
-    bool    Load(); // FUN_005152f0
+    void    LoadSongs(); // Corresponds to FUN_005166f0
     
+    // Helpers
+    SongTrack* GetSong(const std::string& theName);
+
 private:
-    void    ProcessCommand(char* theLine); // FUN_00514f30
-    void    LogError(const char* theFmt, ...);
+    void    ParseSongFile(const std::string& theFilePath, const std::string& theSongName);
+    int     ParseNotePitch(const std::string& theNoteStr); // Logic from FUN_0050e860
+    float   ParseDuration(const std::string& theDurStr);
 };
 
-//=============================================================================
-// Fish Logic Helpers
-//=============================================================================
-void CheckAndApplySpecialFishLogic(Fish* theFish, GameApp* theApp); // FUN_0054cc70
+}
 
-#endif
+#endif // __FISHSONG_H__
