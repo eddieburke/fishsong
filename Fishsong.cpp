@@ -1,359 +1,318 @@
-#include "Fishsong.h"
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <cstdlib>
-#include <cctype>
+#include "FishSong.h"
+#include <windows.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
 #include <algorithm>
 
-//-------------------------------------------------------------------------
-// global configuration instance
-//-------------------------------------------------------------------------
-FishsongConfig g_fishsongConfig = { false, 1, 5.0f, 1.0f, 0, 0 };
+// Disable warnings for "unsafe" CRT functions standard in VS2005
+#pragma warning(disable: 4996) 
 
-//-------------------------------------------------------------------------
-// tiny helpers
-//-------------------------------------------------------------------------
-static void LogInfo (const std::string& m){ std::cout << "INFO:  " << m << std::endl; }
-static void LogError(const std::string& m){ std::cerr << "ERROR: " << m << std::endl; }
+// Global song buckets
+std::list<FishSong> gFishSongsNormal;
+std::list<FishSong> gFishSongsRare;
+std::list<FishSong> gFishSongsSanta;
+std::list<FishSong> gFishSongsBeethoven;
+std::list<FishSong> gFishSongsKilgore;
 
-int StrCaseCmp(const char* a,const char* b)
+//-----------------------------------------------------------------------------
+// Construction / Destruction
+//-----------------------------------------------------------------------------
+FishSong::FishSong()
 {
-    while(*a && std::tolower((unsigned char)*a)==std::tolower((unsigned char)*b))
-        { ++a; ++b; }
-    return std::tolower((unsigned char)*a) - std::tolower((unsigned char)*b);
+    mIsLongVersion = false;
 }
 
-static std::string Trim(const std::string& s)
+FishSong::~FishSong()
 {
-    const std::string ws(" \t\r\n");
-    std::string::size_type a = s.find_first_not_of(ws);
-    if(a==std::string::npos) return "";
-    std::string::size_type b = s.find_last_not_of(ws);
-    return s.substr(a,b-a+1);
+    mNotes.clear();
 }
 
-static int NoteLetterToVal(char c)
+void FishSong_Init()
 {
-    switch(std::tolower(c))
+    FishSong_FreeAll();
+}
+
+void FishSong_FreeAll()
+{
+    gFishSongsNormal.clear();
+    gFishSongsRare.clear();
+    gFishSongsSanta.clear();
+    gFishSongsBeethoven.clear();
+    gFishSongsKilgore.clear();
+}
+
+//-----------------------------------------------------------------------------
+// Helper: Case Insensitive Comparison (PopCap utility style)
+//-----------------------------------------------------------------------------
+static bool StringEquals(const std::string& aStr1, const std::string& aStr2)
+{
+    return stricmp(aStr1.c_str(), aStr2.c_str()) == 0;
+}
+
+static bool StringContains(const std::string& aString, const std::string& aSubString)
+{
+    std::string s1 = aString;
+    std::string s2 = aSubString;
+    std::transform(s1.begin(), s1.end(), s1.begin(), ::tolower);
+    std::transform(s2.begin(), s2.end(), s2.begin(), ::tolower);
+    return s1.find(s2) != std::string::npos;
+}
+
+//-----------------------------------------------------------------------------
+// FUN_0050e860: FishSong_ParseNote
+// Parses a single note string (e.g. "C#5 q") into the FishNote struct
+//-----------------------------------------------------------------------------
+static void FishSong_ParseNote(FishNote* pNote, char* pTokenString)
+{
+    char szNote[256];
+    char szDur[256];
+    char szExtra[256];
+
+    // Initialize defaults based on decompilation
+    pNote->mPitch = 0.0f;
+    pNote->mUnused1 = 0.0f;
+    pNote->mUnused2 = 0.0f;
+    pNote->mSustain = 1.875f; // Magic value from 0050e860
+    pNote->mDuration = 0.0f;
+
+    // Scan for exactly two strings. If 3, it's an error (missing comma).
+    int nScanned = sscanf(pTokenString, "%s%s%s", szNote, szDur, szExtra);
+    
+    if (nScanned != 2)
     {
-        case 'c': return 0;  case 'd': return 2;  case 'e': return 4;
-        case 'f': return 5;  case 'g': return 7;  case 'a': return 9;
-        case 'b': return 11; default:  return -1;
+        // In a real PopCap engine, this would log to a debug console
+        return; 
     }
-}
 
-//=============================================================================
-// CSongEvent
-//=============================================================================
-CSongEvent::CSongEvent() :
-    noteValue(0), duration(0), volume(1.0f), title(""),
-    isChordMember(false)
-{}
+    // --- Parse Pitch ---
+    int nBasePitch = 0;
+    char cNote = (char)tolower(szNote[0]);
 
-bool CSongEvent::ProcessSongEvent(const std::string& token)
-{
-    std::istringstream iss(token);
-    std::string noteTok, durTok, volTok;
-    iss >> noteTok >> durTok >> volTok;
-    if(noteTok.empty()) return false;
-
-    isChordMember = (durTok=="0");
-
-    // -------------------- note / rest
-    if(std::tolower(noteTok[0])=='r')
+    switch (cNote)
     {
-        noteValue = -1;
+        case 'c': nBasePitch = 0; break;
+        case 'd': nBasePitch = 2; break;
+        case 'e': nBasePitch = 4; break;
+        case 'f': nBasePitch = 5; break;
+        case 'g': nBasePitch = 7; break;
+        case 'a': nBasePitch = 9; break;
+        case 'b': nBasePitch = 11; break;
+        case 'r': nBasePitch = -10000; break; // Rest
+        default: return; // Invalid note
     }
-    else
-    {
-        int base = NoteLetterToVal(noteTok[0]);
-        if(base<0) return false;
 
-        std::size_t p = 1;
-        int accidental = 0;
-        if(p<noteTok.size())
+    int nOctave = 4; // Default octave
+    char cAccidental = szNote[1];
+    char cNext = szNote[2];
+
+    if (cAccidental != '\0')
+    {
+        if (!isdigit(cAccidental))
         {
-            if(noteTok[p]=='b')                     { accidental=-1; ++p; }
-            else if(noteTok[p]=='#' || noteTok[p]=='s') { accidental=+1; ++p; }
+            if (cAccidental == '#') nBasePitch++;
+            else if (cAccidental == 'b') nBasePitch--;
+            
+            // If accidental present, octave is the next char
+            if (isdigit(cNext)) nOctave = cNext - '0';
         }
-
-        int octave = 4;
-        if(p<noteTok.size() && std::isdigit((unsigned char)noteTok[p]))
-            octave = std::atoi(noteTok.substr(p).c_str());
-
-        noteValue = (octave+1)*12 + base + accidental +
-                    g_fishsongConfig.shift + g_fishsongConfig.localShift;
-    }
-
-    // -------------------- duration
-    duration = isChordMember ? 0 : ParseDuration(durTok);
-
-    // -------------------- volume
-    volume = g_fishsongConfig.volume;
-    if(!volTok.empty())
-    {
-        float v = (float)std::atof(volTok.c_str());
-        if(v>=0.0f) volume = v;
-    }
-
-    title = noteTok;
-    return true;
-}
-
-int CSongEvent::GetDurationValue(char sym)
-{
-    switch(std::tolower(sym))
-    {
-        case 'w': return 480;  // whole
-        case 'h': return 240;  // half
-        case 'q': return 120;  // quarter
-        case 'e': return  60;  // eighth
-        case 's': return  30;  // sixteenth
-        case 't': return  15;  // 32-nd (triplet eighth)
-        case 'z': return   4;  // 128-th (3.75 → rounded)
-        default : return   0;
-    }
-}
-
-int CSongEvent::ParseDuration(const std::string& str)
-{
-    if(str.empty()) return 120;
-
-    int total = 0;
-    std::stringstream ss(str);
-    std::string seg;
-    while(std::getline(ss,seg,'+'))
-    {
-        seg = Trim(seg); if(seg.empty()) continue;
-        int val = 0;
-
-        if(std::isdigit((unsigned char)seg[0]))
-            val = std::atoi(seg.c_str());                // raw ticks
         else
         {
-            val = GetDurationValue(seg[0]);
-            if(val==0) continue;
-
-            if(seg.size()>1 && seg[1]=='d')              // dotted
-            {
-                val = (val*3)/2;
-                if(seg.size()>2 && seg[2]=='d')          // double dot
-                    val += val/2;
-            }
-            else if(seg.size()>1 && seg[1]=='t')         // triplet
-                val = (val*2)/3;
-        }
-        total += val;
-    }
-    return total>0 ? total : 120;
-}
-
-void CSongEvent::FinalizeSongStructure()
-{
-    if(!isChordMember && duration<1)
-        duration = 1;
-}
-
-void CSongEvent::FishsongCopyData(const CSongEvent& root)
-{
-    noteValue   = root.noteValue;
-    duration    = root.duration;
-    volume      = root.volume;
-    SetIsChordMember(false);
-}
-
-bool CSongEvent::CheckSongCategory(const std::string& c) const
-{
-    // “short” < half-note,  “long” ≥ dotted-half
-    if(StrCaseCmp(c.c_str(),"short")==0) return duration < 240;
-    if(StrCaseCmp(c.c_str(),"long" )==0) return duration >=300;
-    return false;
-}
-
-// accessors ----------------------------------------------------------
-int                 CSongEvent::GetNoteValue()  const { return noteValue; }
-int                 CSongEvent::GetDuration()   const { return duration; }
-float               CSongEvent::GetVolume()     const { return volume; }
-const std::string&  CSongEvent::GetTitle()      const { return title; }
-bool                CSongEvent::IsChordMember() const { return isChordMember; }
-
-void CSongEvent::SetTitle(const std::string& t){ title=t; }
-void CSongEvent::SetDuration(int d){ duration=d; }
-void CSongEvent::SetIsChordMember(bool v){ isChordMember=v; }
-
-//=============================================================================
-// CFishsongFile  --------------------------------------------------------------
-//=============================================================================
-CFishsongFile::CFishsongFile(const std::string& p)
-: mPath(p), mCurrentTrack(1), mWaitingForTrack(0)
-{}
-
-CFishsongFile::~CFishsongFile(){}
-
-bool CFishsongFile::Load()
-{
-    std::ifstream in(mPath.c_str());
-    if(!in) { LogError("File not found: "+mPath); return false; }
-
-    mTrackPos.clear();
-    mTrackPos[mCurrentTrack]=0;
-    g_fishsongConfig.localShift=0;
-
-    bool skip=false;
-    std::string line;
-    while(std::getline(in,line))
-    {
-        line = Trim(line);
-        if(line.empty()||line[0]=='#') continue;
-
-        if(line[0]=='*')
-        {
-            if(StrCaseCmp(line.substr(0,4).c_str(),"*off")==0){ skip=true;  continue;}
-            if(StrCaseCmp(line.substr(0,3).c_str(),"*on" )==0){ skip=false; continue;}
-            ProcessCommand(line);
-            continue;
-        }
-        if(skip) continue;
-
-        if(mWaitingForTrack>0 &&
-           mCurrentTrack!=mWaitingForTrack &&
-           mTrackPos[mCurrentTrack] < mTrackPos[mWaitingForTrack])
-            continue;                      // still waiting
-
-        std::stringstream ls(line);
-        std::string tok;
-        while(std::getline(ls,tok,','))
-        {
-            tok = Trim(tok); if(tok.empty()) continue;
-            CSongEvent ev;
-            if(!ev.ProcessSongEvent(tok))
-            {
-                LogError("Bad token \""+tok+"\" in line: "+line);
-                continue;
-            }
-            ProcessEventWithChordHandling(ev);
+            // No accidental, cAccidental is the octave digit
+            nOctave = cAccidental - '0';
         }
     }
 
-    FinalizePendingChord(120);
-    return true;
-}
+    // Formula: Base + (Octave - 4) * 12
+    pNote->mPitch = (float)(nBasePitch + (nOctave - 4) * 12);
 
-void CFishsongFile::ProcessEventWithChordHandling(const CSongEvent& ev)
-{
-    if(ev.IsChordMember()){ mPendingChord.push_back(ev); return;}
-
-    if(!mPendingChord.empty())
+    // --- Parse Duration ---
+    // If it's a raw number
+    if (isdigit(szDur[0]))
     {
-        for(std::vector<CSongEvent>::iterator it=mPendingChord.begin();
-            it!=mPendingChord.end(); ++it)
-        {
-            it->FishsongCopyData(ev);
-            it->FinalizeSongStructure();
-            mEvents.push_back(*it);
-        }
-        mPendingChord.clear();
+        pNote->mDuration = (float)atoi(szDur);
     }
-
-    CSongEvent root = ev;
-    root.FinalizeSongStructure();
-    mEvents.push_back(root);
-    mTrackPos[mCurrentTrack]+=root.GetDuration();
-}
-
-void CFishsongFile::FinalizePendingChord(int rootDur)
-{
-    if(mPendingChord.empty()) return;
-    for(std::vector<CSongEvent>::iterator it=mPendingChord.begin();
-        it!=mPendingChord.end(); ++it)
-    {
-        if(rootDur>0) it->SetDuration(rootDur);
-        it->SetIsChordMember(false);
-        it->FinalizeSongStructure();
-        mEvents.push_back(*it);
-    }
-    mTrackPos[mCurrentTrack]+=rootDur;
-    mPendingChord.clear();
-}
-
-void CFishsongFile::ProcessCommand(const std::string& raw)
-{
-    std::string cmd = Trim(raw.substr(1));     // drop '*'
-    std::istringstream iss(cmd);
-    std::string name,value; iss>>name; std::getline(iss,value); value=Trim(value);
-    if(name.empty()) return;
-
-    if(StrCaseCmp(name.c_str(),"line")==0)
-    {
-        int n=std::atoi(value.c_str()); if(n<=0) return;
-        FinalizePendingChord(120);
-        mCurrentTrack=n; g_fishsongConfig.line=n; g_fishsongConfig.localShift=0;
-        if(mTrackPos.find(n)==mTrackPos.end()) mTrackPos[n]=0;
-        return;
-    }
-    if(StrCaseCmp(name.c_str(),"rest")==0)
-    {
-        mWaitingForTrack=std::atoi(value.c_str());
-        return;
-    }
-    ParseFishSongCommand(cmd);    // anything else – global
-}
-
-const std::vector<CSongEvent>& CFishsongFile::GetEvents() const { return mEvents; }
-
-//=============================================================================
-// CFishsongManager (stub)
-//=============================================================================
-CFishsongManager::CFishsongManager():mUpdateCounter(0){}
-CFishsongManager::~CFishsongManager(){}
-
-bool CFishsongManager::UpdateState(int,int,int& out,int flag)
-{ out=++mUpdateCounter; if(flag>=0) LogInfo("Manager update"); return true; }
-
-void CFishsongManager::DispatchEvent(const CSongEvent& ev)
-{ mValidated.push_back(ev); LogInfo("Dispatch "+ev.GetTitle()); }
-
-void CFishsongManager::FinalizeEventTitle(CSongEvent& ev)
-{ if(ev.CheckSongCategory("long")) ev.SetTitle(ev.GetTitle()+" (extended)"); }
-
-void CFishsongManager::ResetState(){ mValidated.clear(); mUpdateCounter=0; }
-
-//=============================================================================
-// Global helpers
-//=============================================================================
-void InitFishsongEvents(){ g_fishsongConfig=FishsongConfig{false,1,5.0f,1.0f,0,0}; }
-void ClearFishsongBuffer(){ LogInfo("Fishsong buffer cleared"); }
-
-CFishsongFile* LoadFishsongFile(const std::string& p)
-{
-    CFishsongFile* f=new CFishsongFile(p);
-    if(!f||!f->Load()){ delete f; return 0; }
-    return f;
-}
-
-void ProcessFishsong(bool force)
-{
-    static bool once=false;
-    if(force||!once){ once=true; LogInfo("ProcessFishsong stub"); }
-}
-
-void ParseFishSongCommand(const std::string& cmdLine)
-{
-    std::istringstream iss(cmdLine);
-    std::string n,v; iss>>n; std::getline(iss,v); v=Trim(v);
-    if(n.empty()) return;
-
-    if(StrCaseCmp(n.c_str(),"speed")==0)
-        g_fishsongConfig.speed  = std::max(0.1f,(float)std::atof(v.c_str()));
-    else if(StrCaseCmp(n.c_str(),"volume")==0)
-        g_fishsongConfig.volume = std::max(0.0f,std::min(1.0f,(float)std::atof(v.c_str())));
-    else if(StrCaseCmp(n.c_str(),"shift")==0)
-        g_fishsongConfig.shift  = std::atoi(v.c_str());
-    else if(StrCaseCmp(n.c_str(),"localshift")==0)
-        g_fishsongConfig.localShift = std::atoi(v.c_str());
-    else if(StrCaseCmp(n.c_str(),"attrib")==0)
-        LogInfo("Global attrib: "+v);
     else
-        LogError("Unknown global cmd: "+n);
+    {
+        char* pChar = szDur;
+        while (*pChar)
+        {
+            int nTicks = 0;
+            char cDur = (char)tolower(*pChar);
+
+            switch (cDur)
+            {
+                case 'w': nTicks = 192; break; // Whole
+                case 'h': nTicks = 96;  break; // Half
+                case 'q': nTicks = 48;  break; // Quarter
+                case 'e': nTicks = 24;  break; // Eighth
+                case 's': nTicks = 12;  break; // Sixteenth
+                case 't': nTicks = 6;   break; // 32nd
+                case 'z': nTicks = 3;   break; // 64th
+                default: break; 
+            }
+
+            // Check modifiers
+            char* pNext = pChar + 1;
+            char cMod = (char)tolower(*pNext);
+
+            if (cMod == 't') // Triplet
+            {
+                nTicks = (nTicks * 2) / 3;
+                pNext++;
+            }
+
+            // Handle Dots ('d')
+            int nDotVal = nTicks;
+            int nTotalTicks = nTicks;
+
+            while (tolower(*pNext) == 'd')
+            {
+                nDotVal /= 2;
+                nTotalTicks += nDotVal;
+                pNext++;
+            }
+
+            pNote->mDuration += (float)nTotalTicks;
+
+            // Handle Ties ('+')
+            if (*pNext != '+') break;
+            
+            // Advance past '+' and continue loop
+            pChar = pNext + 1;
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+// FUN_005152f0: FishSong_ParseFile
+// Reads the file line by line
+//-----------------------------------------------------------------------------
+static bool FishSong_ParseFile(const std::string& aFilename, FishSong& outSong)
+{
+    FILE* fp = fopen(aFilename.c_str(), "r");
+    if (!fp) return false;
+
+    char szLineBuffer[4096];
+    outSong.mNotes.clear();
+
+    while (fgets(szLineBuffer, sizeof(szLineBuffer), fp))
+    {
+        // Basic trimming and comment check
+        if (szLineBuffer[0] == '#' || szLineBuffer[0] == '\r' || szLineBuffer[0] == '\n') 
+            continue;
+
+        // Tokenize by comma
+        char* pToken = strtok(szLineBuffer, ",");
+        while (pToken != NULL)
+        {
+            // Skip whitespace (simple implementation)
+            while (isspace(*pToken)) pToken++;
+
+            FishNote aNote;
+            FishSong_ParseNote(&aNote, pToken);
+
+            // Only add if it's a valid note or valid rest
+            if (aNote.mDuration > 0.0f || aNote.mPitch == -10000.0f)
+            {
+                outSong.mNotes.push_back(aNote);
+            }
+
+            pToken = strtok(NULL, ",");
+        }
+    }
+
+    fclose(fp);
+    return !outSong.mNotes.empty();
+}
+
+//-----------------------------------------------------------------------------
+// FUN_005166f0: FishSong_LoadAll
+// Main entry point for loading songs
+//-----------------------------------------------------------------------------
+void FishSong_LoadAll()
+{
+    FishSong_Init();
+
+    // In VS2005/Windows, we use FindFirstFile
+    WIN32_FIND_DATAA findData;
+    HANDLE hFind = FindFirstFileA("fishsongs\\*.txt", &findData);
+
+    if (hFind == INVALID_HANDLE_VALUE)
+        return;
+
+    // Error logging file
+    FILE* pErrorFile = NULL; 
+
+    do
+    {
+        if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            continue;
+
+        std::string sFilename = findData.cFileName;
+        std::string sFullPath = "fishsongs\\" + sFilename;
+        std::string sShortName = sFilename;
+        
+        bool bIsLong = false;
+
+        // Detect _long.txt or _short.txt suffix
+        size_t nUnderscore = sShortName.find('_');
+        if (nUnderscore != std::string::npos)
+        {
+            std::string sSuffix = sShortName.substr(nUnderscore);
+            if (StringEquals(sSuffix, "_long.txt"))
+                bIsLong = true;
+            else if (StringEquals(sSuffix, "_short.txt"))
+                bIsLong = false;
+            
+            // Strip suffix for categorization
+            sShortName = sShortName.substr(0, nUnderscore);
+        }
+        else
+        {
+            // Strip extension
+            size_t nDot = sShortName.find('.');
+            if (nDot != std::string::npos)
+                sShortName = sShortName.substr(0, nDot);
+        }
+
+        FishSong aSong;
+        aSong.mName = sShortName;
+        aSong.mIsLongVersion = bIsLong;
+
+        if (FishSong_ParseFile(sFullPath, aSong))
+        {
+            // Categorization logic based on name
+            if (StringEquals(sShortName, "kilgore"))
+            {
+                gFishSongsKilgore.push_back(aSong);
+            }
+            else if (StringEquals(sShortName, "santa") || StringEquals(sShortName, "santarare"))
+            {
+                gFishSongsSanta.push_back(aSong);
+            }
+            else if (StringEquals(sShortName, "beethoven") || StringEquals(sShortName, "beethovenrare"))
+            {
+                gFishSongsBeethoven.push_back(aSong);
+            }
+            else
+            {
+                if (StringContains(sShortName, "rare"))
+                    gFishSongsRare.push_back(aSong);
+                else
+                    gFishSongsNormal.push_back(aSong);
+            }
+        }
+        else
+        {
+            // Mimic error logging behavior from decomp
+            if (!pErrorFile) pErrorFile = fopen("fishsongerror.txt", "w");
+            if (pErrorFile) fprintf(pErrorFile, "%s - Error parsing file\n", sFilename.c_str());
+        }
+
+    } while (FindNextFileA(hFind, &findData));
+
+    if (pErrorFile) fclose(pErrorFile);
+    FindClose(hFind);
 }
