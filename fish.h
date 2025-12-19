@@ -4,19 +4,34 @@
 #include "SexyAppFramework/Graphics.h"
 #include "FishSong.h"
 
-namespace Sexy {
-    class Fish {
-    public:
-        float mX, mY;
-        FishSong* mCurrentSong;
-        int mSongTick;
-        int mNoteIndex;
+namespace Sexy
+{
 
-        Fish(float theX, float theY);
-        void SetSong(FishSong* theSong);
-        void Update();
-        void Draw(Graphics* g);
-    };
+class Fish
+{
+public:
+    float           mX, mY;
+    
+    // Song Playback State
+    SongTrack*      mCurrentSong;
+    int             mCurrentNoteIndex;
+    float           mNoteTimer;         // Counts down to next note
+    std::string     mCurrentLyric;
+    bool            mIsSinging;
+    float           mScale;             // Pulsing effect when singing
+
+public:
+    Fish(float x, float y);
+    virtual ~Fish();
+
+    void    SetSong(const std::string& theSongName);
+    void    Update();
+    void    Draw(Graphics* g);
+
+private:
+    void    PlayCurrentNote();
+};
+
 }
 
-#endif
+#endif // __FISH_H__
