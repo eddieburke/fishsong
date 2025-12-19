@@ -2,24 +2,41 @@
 #define __FISH_H__
 
 #include <string>
+#include "SexyAppFramework/Color.h"
+#include "SexyAppFramework/Graphics.h"
+
+namespace Sexy
+{
+
+class Board;
 
 class Fish 
 {
 public:
-    std::string mName;          // 0xB4
-    int         mVariant;       // 0x8C (0 = Guppy/Normal)
-    bool        mIsSingingFish; // 0x110
-    int         mType;          // 0x124 (-1 = Default, 5 = Santa)
-    bool        mHasCostume;    // 0x1D0
-    bool        mIsSpecial;     // 0x1A8
+    std::string mName;          
+    int         mVariant;       // 0 = Guppy/Normal
+    bool        mIsSingingFish; 
+    int         mType;          // -1 = Default, 5 = Santa, 1 = Beethoven, etc.
+    bool        mHasCostume;    
+    bool        mIsSpecial;     
+
+    // Visuals (Stubbed)
+    float       mX, mY;
+    Color       mColor1, mColor2, mColor3;
 
 public:
-    Fish() : mVariant(0), mIsSingingFish(false), mType(-1), mHasCostume(false), mIsSpecial(false) {}
-    
-    // Stub methods for FUN_00433320
-    void SetColor1(int c) {}
-    void SetColor2(int c) {}
-    void SetColor3(int c) {}
+    Fish(const std::string& name);
+    virtual ~Fish();
+
+    void Update(Board* theBoard);
+    void Draw(Graphics* g);
+
+    // Helpers for the decompiled logic
+    void SetColor1(int c) { mColor1 = Color(c); }
+    void SetColor2(int c) { mColor2 = Color(c); }
+    void SetColor3(int c) { mColor3 = Color(c); }
 };
 
-#endif
+}
+
+#endif // __FISH_H__
